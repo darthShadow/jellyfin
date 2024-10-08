@@ -70,13 +70,19 @@ namespace Emby.Server.Implementations.Data
         /// The default (-1) is overriden to prevent unconstrained WAL size, as reported by users.
         /// </summary>
         /// <value>The journal size limit.</value>
-        protected virtual int? JournalSizeLimit => 134_217_728; // 128MiB
+        protected virtual int? JournalSizeLimit => 128 * 1024 * 1024; // 128 MiB
 
         /// <summary>
         /// Gets the page size.
         /// </summary>
         /// <value>The page size or null.</value>
         protected virtual int? PageSize => null;
+
+        /// <summary>
+        /// Gets the mmap size. <see href="https://www.sqlite.org/pragma.html#pragma_mmap_size" />.
+        /// </summary>
+        /// <value>The mmap size or null.</value>
+        protected virtual long? MmapSize => 8L * 1024 * 1024 * 1024; // 8 GiB
 
         /// <summary>
         /// Gets the temp store mode.
@@ -97,7 +103,45 @@ namespace Emby.Server.Implementations.Data
             // Configuration and pragmas can affect VACUUM so it needs to be last.
             using (var connection = GetConnection())
             {
-                connection.Execute("VACUUM");
+                // connection.Execute("VACUUM");
+
+                // Print the version
+                var queryResult = connection.Query("SELECT sqlite_version()");
+                foreach (var row in queryResult)
+                {
+                    Logger.LogInformation("SQLite Version: {Version}", row.GetString(0));
+                }
+
+                // Print the compile_options
+                var compileOptions = new List<string>();
+                foreach (var row in connection.Query("PRAGMA compile_options"))
+                {
+                    compileOptions.Add(row.GetString(0));
+                }
+
+                Logger.LogInformation("SQLite Compile Options: {CompileOptions}", string.Join(", ", compileOptions.ToArray()));
+
+                if (CacheSize.HasValue)
+                {
+                    Logger.LogInformation("SQLite Cache Size: {CacheSize}", CacheSize.Value);
+                }
+
+                if (PageSize.HasValue)
+                {
+                    Logger.LogInformation("SQLite Page Size: {PageSize}", PageSize.Value);
+                }
+
+                if (Synchronous.HasValue)
+                {
+                    Logger.LogInformation("SQLite Synchronous Mode: {Synchronous}", Synchronous.Value);
+                }
+
+                if (MmapSize.HasValue)
+                {
+                    Logger.LogInformation("SQLite Mmap Size: {MmapSize}", MmapSize);
+                }
+
+                Logger.LogInformation("SQLite Temp Store Mode: {TempStore}", (int)TempStore);
             }
         }
 
@@ -144,12 +188,17 @@ namespace Emby.Server.Implementations.Data
                     writeConnection.Execute("PRAGMA page_size=" + PageSize.Value);
                 }
 
+                if (MmapSize.HasValue)
+                {
+                    writeConnection.Execute("PRAGMA mmap_size=" + MmapSize);
+                }
+
                 writeConnection.Execute("PRAGMA temp_store=" + (int)TempStore);
 
                 return new ManagedConnection(_writeConnection = writeConnection, _writeLock);
             }
 
-            var connection = new SqliteConnection($"Filename={DbFilePath};Mode=ReadOnly");
+            var connection = new SqliteConnection($"Filename={DbFilePath};Mode=ReadOnly;Pooling=True");
             connection.Open();
 
             if (CacheSize.HasValue)
@@ -180,6 +229,11 @@ namespace Emby.Server.Implementations.Data
             if (PageSize.HasValue)
             {
                 connection.Execute("PRAGMA page_size=" + PageSize.Value);
+            }
+
+            if (MmapSize.HasValue)
+            {
+                connection.Execute("PRAGMA mmap_size=" + MmapSize);
             }
 
             connection.Execute("PRAGMA temp_store=" + (int)TempStore);
