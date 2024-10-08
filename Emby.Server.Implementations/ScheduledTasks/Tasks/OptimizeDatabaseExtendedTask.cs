@@ -17,23 +17,23 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
     /// <summary>
     /// Optimizes Jellyfin's database by issuing a VACUUM command.
     /// </summary>
-    public class OptimizeDatabaseTask : IScheduledTask, IConfigurableScheduledTask
+    public class OptimizeDatabaseExtendedTask : IScheduledTask, IConfigurableScheduledTask
     {
         private const string DbFilename = "library.db";
-        private readonly ILogger<OptimizeDatabaseTask> _logger;
+        private readonly ILogger<OptimizeDatabaseExtendedTask> _logger;
         private readonly ILocalizationManager _localization;
         private readonly IDbContextFactory<JellyfinDbContext> _provider;
         private readonly IServerApplicationPaths _applicationPaths;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="OptimizeDatabaseTask" /> class.
+        /// Initializes a new instance of the <see cref="OptimizeDatabaseExtendedTask" /> class.
         /// </summary>
         /// <param name="logger">The logger.</param>
         /// <param name="localization">The localization manager.</param>
         /// <param name="provider">The jellyfin DB context provider.</param>
         /// <param name="applicationPaths">Instance of the <see cref="IServerApplicationPaths"/> interface.</param>
-        public OptimizeDatabaseTask(
-            ILogger<OptimizeDatabaseTask> logger,
+        public OptimizeDatabaseExtendedTask(
+            ILogger<OptimizeDatabaseExtendedTask> logger,
             ILocalizationManager localization,
             IServerApplicationPaths applicationPaths,
             IDbContextFactory<JellyfinDbContext> provider)
@@ -46,17 +46,17 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
 
         /// <inheritdoc />
         // public string Name => _localization.GetLocalizedString("TaskOptimizeDatabase");
-        public string Name => "Optimise Database - Quick";
+        public string Name => "Optimise Database - Extended";
 
         /// <inheritdoc />
         // public string Description => _localization.GetLocalizedString("TaskOptimizeDatabaseDescription");
-        public string Description => "Compacts database and truncates free space. Running this task after scanning the library or doing other changes that imply database modifications might improve performance.";
+        public string Description => "Compacts database and truncates free space. Running this task after adding or deleting library folders or doing other changes that imply significant database modifications might improve performance.";
 
         /// <inheritdoc />
         public string Category => _localization.GetLocalizedString("TasksMaintenanceCategory");
 
         /// <inheritdoc />
-        public string Key => "OptimizeDatabaseTask";
+        public string Key => "OptimizeDatabaseExtendedTask";
 
         /// <inheritdoc />
         public bool IsHidden => false;
@@ -76,7 +76,7 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
             return new[]
             {
                 // Every so often
-                new TaskTriggerInfo { Type = TaskTriggerInfo.TriggerInterval, IntervalTicks = TimeSpan.FromDays(1).Ticks }
+                new TaskTriggerInfo { Type = TaskTriggerInfo.TriggerInterval, IntervalTicks = TimeSpan.FromDays(7).Ticks }
             };
         }
 
@@ -93,9 +93,10 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
 
                     _logger.LogInformation("Optimizing DB: library.db");
 
-                    connection.Execute("PRAGMA wal_checkpoint(FULL)");
-                    connection.Execute("PRAGMA quick_check(1)");
-                    connection.Execute("PRAGMA analysis_limit=1024; ANALYZE; PRAGMA optimize");
+                    connection.Execute("PRAGMA integrity_check(1)");
+                    connection.Execute("PRAGMA foreign_key_check");
+                    connection.Execute("VACUUM");
+                    connection.Execute("PRAGMA analysis_limit=0; ANALYZE; PRAGMA optimize");
                     connection.Execute("REINDEX");
                 }
             }
@@ -113,9 +114,10 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
                     {
                         _logger.LogInformation("Optimizing DB: jellyfin.db");
 
-                        await context.Database.ExecuteSqlRawAsync("PRAGMA wal_checkpoint(FULL)", cancellationToken).ConfigureAwait(false);
-                        await context.Database.ExecuteSqlRawAsync("PRAGMA quick_check(1)", cancellationToken).ConfigureAwait(false);
-                        await context.Database.ExecuteSqlRawAsync("PRAGMA analysis_limit=1024; ANALYZE; PRAGMA optimize", cancellationToken).ConfigureAwait(false);
+                        await context.Database.ExecuteSqlRawAsync("PRAGMA integrity_check(1)", cancellationToken).ConfigureAwait(false);
+                        await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_key_check", cancellationToken).ConfigureAwait(false);
+                        await context.Database.ExecuteSqlRawAsync("VACUUM", cancellationToken).ConfigureAwait(false);
+                        await context.Database.ExecuteSqlRawAsync("PRAGMA analysis_limit=0; ANALYZE; PRAGMA optimize", cancellationToken).ConfigureAwait(false);
                         await context.Database.ExecuteSqlRawAsync("REINDEX", cancellationToken).ConfigureAwait(false);
                     }
                     else
