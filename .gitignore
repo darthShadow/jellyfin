@@ -1,3 +1,6 @@
+!.claude/*.md
+!.claude/**/*.md
+
 .directory
 
 #################
